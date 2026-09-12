@@ -19,7 +19,7 @@ I will not reuse this code on another site without checking its rules and terms 
 ## How to run
 
 1. Install Python 3.10+
-2. Install dependencies: pip install requests beautifulsoup4 pydantic
+2. Install dependencies: pip install -r requirements.txt
 3. Run the scraper: python scraper/src/main.py
 4. Output appears in `output/books.json` and `output/run-report.json`
 
@@ -50,11 +50,11 @@ Each book record contains:
 
 ```json
 {
-  "start_time": "2026-09-12T16:25:42.470165+00:00",
-  "duration_seconds": 2.568254,
+  "start_time": "2026-09-12T16:37:21.249496+00:00",
+  "duration_seconds": 2.989897,
   "catalogue_pages": 3,
-  "pages_fetched": null,
-  "cache_hits": null,
+  "pages_fetched": 0,
+  "cache_hits": 63,
   "valid_records": 60,
   "invalid_records": 0,
   "failed_pages": 1,

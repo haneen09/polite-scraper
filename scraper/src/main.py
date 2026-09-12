@@ -8,6 +8,9 @@ import re
 import json
 from pydantic import BaseModel, ValidationError
 
+fetch_count = 0
+cache_hit_count = 0
+
 
 USER_AGENT = "FlyRankInternshipA9/1.0 (+https://github.com/haneen09/polite-scrapper)"
 TIMEOUT_SECONDS = 10
@@ -16,10 +19,12 @@ DELAY_SECONDS = 0.5
 
 
 def fetch_page(url, cache_filename):
+    global fetch_count, cache_hit_count
     cache_path = CACHE_DIR / cache_filename
 
     if cache_path.exists():
         html = cache_path.read_text(encoding="utf-8")
+        cache_hit_count += 1
         print(f"CACHE HIT — {cache_filename} ({len(html)} bytes)")
         return html
 
@@ -42,6 +47,7 @@ def fetch_page(url, cache_filename):
             html = response.text
             CACHE_DIR.mkdir(exist_ok=True)
             cache_path.write_text(html, encoding="utf-8")
+            fetch_count += 1
             print(f"FETCH — {cache_filename} ({len(html)} bytes)")
             time.sleep(DELAY_SECONDS)
             return html
@@ -261,8 +267,8 @@ if __name__ == "__main__":
     write_run_report(
         start_time=start_time,
         catalogue_pages=3,
-        cache_hits=None,
-        fetch_count=None,
+        cache_hits=cache_hit_count,
+        fetch_count=fetch_count,
         valid_records=len(valid_records),
         invalid_records=len(invalid_records),
         failed_pages=failed_pages
