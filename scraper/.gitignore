@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Scraper cache — don't upload saved HTML pages
+cache/*.html
+
+# OS junk
+.DS_Store
