@@ -24,19 +24,38 @@ def fetch_page(url, cache_filename):
         return html
 
     headers = {"User-Agent": USER_AGENT}
-    response = requests.get(url, headers=headers, timeout=TIMEOUT_SECONDS)
-    response.encoding = "utf-8"
-    
-    if response.status_code != 200:
+    attempts = 0
+    max_attempts = 2
+
+    while attempts < max_attempts:
+        attempts += 1
+        try:
+            response = requests.get(url, headers=headers, timeout=TIMEOUT_SECONDS)
+            response.encoding = "utf-8"
+        except requests.exceptions.Timeout:
+            if attempts < max_attempts:
+                time.sleep(1)
+                continue
+            raise Exception(f"Timed out after {max_attempts} attempts")
+
+        if response.status_code == 200:
+            html = response.text
+            CACHE_DIR.mkdir(exist_ok=True)
+            cache_path.write_text(html, encoding="utf-8")
+            print(f"FETCH — {cache_filename} ({len(html)} bytes)")
+            time.sleep(DELAY_SECONDS)
+            return html
+
+        if response.status_code in (404, 403):
+            raise Exception(f"Status {response.status_code} — will not retry")
+
+        if response.status_code >= 500 and attempts < max_attempts:
+            time.sleep(1)
+            continue
+
         raise Exception(f"Failed to fetch {url} — status code {response.status_code}")
 
-    html = response.text
-    CACHE_DIR.mkdir(exist_ok=True)
-    cache_path.write_text(html, encoding="utf-8")
-
-    print(f"FETCH — {cache_filename} ({len(html)} bytes)")
-    time.sleep(DELAY_SECONDS)
-    return html
+    raise Exception(f"Failed to fetch {url} after {max_attempts} attempts")
 
 
 def get_book_links(html, page_url):
@@ -127,14 +146,20 @@ def cache_filename_for_book(product_url):
 
 def extract_all_books(book_urls, source_pages):
     records = []
+    failed_pages = []
+
     for url in book_urls:
         cache_filename = cache_filename_for_book(url)
-        html = fetch_page(url, cache_filename)
-        record = extract_book_record(html, url, source_pages[url])
-        records.append(record)
+        try:
+            html = fetch_page(url, cache_filename)
+            record = extract_book_record(html, url, source_pages[url])
+            records.append(record)
+        except Exception as error:
+            print(f"FAILED — {url} ({error})")
+            failed_pages.append({"url": url, "reason": str(error)})
 
     print(f"detail_pages={len(records)}")
-    return records
+    return records, failed_pages
 
 class BookRecord(BaseModel):
     title: str
@@ -197,8 +222,48 @@ def validate_and_store(raw_records):
 
     return valid_records, invalid_records
 
+def write_run_report(start_time, catalogue_pages, cache_hits, fetch_count, valid_records, invalid_records, failed_pages):
+    output_dir = Path(__file__).parent.parent / "output"
+    output_dir.mkdir(exist_ok=True)
+
+    end_time = datetime.now(timezone.utc)
+    duration_seconds = (end_time - start_time).total_seconds()
+
+    report = {
+        "start_time": start_time.isoformat(),
+        "duration_seconds": duration_seconds,
+        "catalogue_pages": catalogue_pages,
+        "pages_fetched": fetch_count,
+        "cache_hits": cache_hits,
+        "valid_records": valid_records,
+        "invalid_records": invalid_records,
+        "failed_pages": len(failed_pages),
+        "failed_page_details": failed_pages
+    }
+
+    report_path = output_dir / "run-report.json"
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+
+    print(f"failed_pages={len(failed_pages)}")
+
 
 if __name__ == "__main__":
+    start_time = datetime.now(timezone.utc)
+
     book_urls, source_pages = discover_all_book_urls()
-    records = extract_all_books(book_urls, source_pages)
-    validate_and_store(records)
+
+    book_urls.append("https://books.toscrape.com/catalogue/this-book-does-not-exist/index.html")
+    source_pages["https://books.toscrape.com/catalogue/this-book-does-not-exist/index.html"] = "manual-test"
+
+    records, failed_pages = extract_all_books(book_urls, source_pages)
+    valid_records, invalid_records = validate_and_store(records)
+
+    write_run_report(
+        start_time=start_time,
+        catalogue_pages=3,
+        cache_hits=None,
+        fetch_count=None,
+        valid_records=len(valid_records),
+        invalid_records=len(invalid_records),
+        failed_pages=failed_pages
+    )
