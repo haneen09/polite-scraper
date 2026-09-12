@@ -4,6 +4,10 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from datetime import datetime, timezone
 import time
+import re
+import json
+from pydantic import BaseModel, ValidationError
+
 
 USER_AGENT = "FlyRankInternshipA9/1.0 (+https://github.com/haneen09/polite-scrapper)"
 TIMEOUT_SECONDS = 10
@@ -132,8 +136,69 @@ def extract_all_books(book_urls, source_pages):
     print(f"detail_pages={len(records)}")
     return records
 
+class BookRecord(BaseModel):
+    title: str
+    product_url: str
+    price_text: str
+    price_gbp: float
+    availability_text: str
+    rating_text: str | None
+    description: str | None
+    source_page: str
+    fetched_at: str
+
+
+def clean_price(price_text):
+    match = re.search(r"[\d.]+", price_text)
+    if match is None:
+        return None
+    return float(match.group())
+
+
+def normalize_record(raw_record):
+    price_gbp = clean_price(raw_record["price_text"])
+    normalized = dict(raw_record)
+    normalized["price_gbp"] = price_gbp
+    return normalized
+
+
+def validate_and_store(raw_records):
+    output_dir = Path(__file__).parent.parent / "output"
+    output_dir.mkdir(exist_ok=True)
+
+    valid_records = []
+    invalid_records = []
+    seen_urls = set()
+
+    for raw_record in raw_records:
+        normalized = normalize_record(raw_record)
+
+        if normalized["product_url"] in seen_urls:
+            continue
+        seen_urls.add(normalized["product_url"])
+
+        try:
+            validated = BookRecord(**normalized)
+            valid_records.append(validated.model_dump())
+        except ValidationError as error:
+            invalid_records.append({
+                "record": normalized,
+                "reason": str(error)
+            })
+
+    books_path = output_dir / "books.json"
+    errors_path = output_dir / "errors.json"
+
+    books_path.write_text(json.dumps(valid_records, indent=2), encoding="utf-8")
+    errors_path.write_text(json.dumps(invalid_records, indent=2), encoding="utf-8")
+
+    print(f"valid_records={len(valid_records)}")
+    print(f"invalid_records={len(invalid_records)}")
+
+    return valid_records, invalid_records
+
 
 if __name__ == "__main__":
     book_urls, source_pages = discover_all_book_urls()
     records = extract_all_books(book_urls, source_pages)
-    print(records[0])
+    validate_and_store(records)
